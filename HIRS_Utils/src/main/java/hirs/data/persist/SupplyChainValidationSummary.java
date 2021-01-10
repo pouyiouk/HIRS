@@ -186,7 +186,6 @@ public class SupplyChainValidationSummary extends ArchivableEntity {
                 "Cannot construct a SupplyChainValidationSummary with a null validations list"
         );
 
-
         this.device = device;
         AppraisalStatus status = calculateValidationResult(validations);
         this.overallValidationResult = status.getAppStatus();
@@ -243,12 +242,11 @@ public class SupplyChainValidationSummary extends ArchivableEntity {
                             validation.getMessage());
                 case FAIL:
                     hasAnyFailures = true;
-                    failureMsg.append(validation.getMessage());
+                    failureMsg.append(String.format("%s%n", validation.getValidationType()));
                     break;
                 default:
                     break;
             }
-
         }
         // if failures, but no error, indicate failure result.
         if (hasAnyFailures) {

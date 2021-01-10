@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.List;
 import java.util.Comparator;
@@ -20,8 +21,9 @@ import hirs.data.persist.certificate.IssuedAttestationCertificate;
 import hirs.data.persist.certificate.attributes.ComponentIdentifier;
 import hirs.data.persist.certificate.attributes.PlatformConfiguration;
 import hirs.persist.CertificateManager;
-import hirs.persist.ReferenceManifestManager;
 import hirs.utils.BouncyCastleUtils;
+import org.bouncycastle.util.encoders.Hex;
+
 import java.util.Collections;
 
 /**
@@ -32,7 +34,6 @@ public final class CertificateStringMapBuilder {
 
     private static final Logger LOGGER =
             LogManager.getLogger(CertificateStringMapBuilder.class);
-    private static final int SERIAL_INDEX = 1;
 
     private CertificateStringMapBuilder() {
 
@@ -136,20 +137,35 @@ public final class CertificateStringMapBuilder {
     public static Certificate containsAllChain(
             final Certificate certificate,
             final CertificateManager certificateManager) {
-
-        Set<CertificateAuthorityCredential> issuerCertificates;
+        Set<CertificateAuthorityCredential> issuerCertificates = new HashSet<>();
+        CertificateAuthorityCredential skiCA = null;
         //Check if there is a subject organization
-        if (certificate.getIssuerOrganization() == null
-                || certificate.getIssuerOrganization().isEmpty()) {
-            //Get certificates by subject
-            issuerCertificates = CertificateAuthorityCredential.select(certificateManager)
-                                    .bySubject(certificate.getIssuer())
-                                     .getCertificates();
+        if (certificate.getAuthKeyId() != null
+                && !certificate.getAuthKeyId().isEmpty()) {
+            byte[] bytes = Hex.decode(certificate.getAuthKeyId());
+            skiCA = CertificateAuthorityCredential
+                    .select(certificateManager)
+                    .bySubjectKeyIdentifier(bytes).getCertificate();
         } else {
-            //Get certificates by subject organization
-            issuerCertificates = CertificateAuthorityCredential.select(certificateManager)
-                                    .bySubjectOrganization(certificate.getIssuerOrganization())
-                                     .getCertificates();
+            LOGGER.info(String.format("Certificate (%s) for %s has no authority key identifier.",
+                    certificate.getClass().toString(), certificate.getSubject()));
+        }
+
+        if (skiCA == null) {
+            if (certificate.getIssuerSorted() == null
+                    || certificate.getIssuerSorted().isEmpty()) {
+                //Get certificates by subject
+                issuerCertificates = CertificateAuthorityCredential.select(certificateManager)
+                        .bySubject(certificate.getIssuer())
+                        .getCertificates();
+            } else {
+                //Get certificates by subject organization
+                issuerCertificates = CertificateAuthorityCredential.select(certificateManager)
+                        .bySubjectSorted(certificate.getIssuerSorted())
+                        .getCertificates();
+            }
+        } else {
+            issuerCertificates.add(skiCA);
         }
 
         for (Certificate issuerCert : issuerCertificates) {
@@ -342,13 +358,7 @@ public final class CertificateStringMapBuilder {
             //CPSuri
             data.put("CPSuri", certificate.getCPSuri());
             //component failure
-            StringBuilder savedFailures = new StringBuilder();
-            for (String s : certificate.getComponentFailures().split(",")) {
-                if (s.contains("Serial")) {
-                    savedFailures.append(s.split("=")[SERIAL_INDEX]);
-                }
-            }
-            data.put("failures", savedFailures.toString());
+            data.put("failures", certificate.getComponentFailures());
 
             //Get platform Configuration values and set map with it
             PlatformConfiguration platformConfiguration = certificate.getPlatformConfiguration();
@@ -490,21 +500,5 @@ public final class CertificateStringMapBuilder {
             LOGGER.error(notFoundMessage);
         }
         return data;
-    }
-
-    /**
-     * Returns the Reference Integrity Manifest information.
-     *
-     * @param uuid ID for the reference integrity manifest.
-     * @param referenceManifestManager the reference manifest
-     * manager for retrieving certs.
-     * @return a hash map with the reference manifest manager.
-     */
-    public static HashMap<String, String> getReferenceManifestInformation(final UUID uuid,
-            final ReferenceManifestManager referenceManifestManager) {
-       HashMap<String, String> data = new HashMap<>();
-
-
-       return data;
     }
 }

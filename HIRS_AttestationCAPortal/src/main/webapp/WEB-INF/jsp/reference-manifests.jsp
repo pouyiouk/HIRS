@@ -46,9 +46,9 @@
                 var columns = [
                         {data: 'tagId'},
                         {data: 'rimType'},
-                        {data: 'manufacturer'},
-                        {data: 'model'},
-                        {data: 'firmwareVersion'},
+                        {data: 'platformManufacturer'},
+                        {data: 'platformModel'},
+                        {data: 'swidTagVersion'},
                         {
                             data: 'id',
                             orderable: false,
@@ -58,9 +58,9 @@
                                 // sets up a hidden input field containing the ID which is
                                 // used as a parameter to the REST POST call to delete
                                 var html = '';
-                                html += certificateDetailsLink('referencemanifest', full.id, true);
-                                html += certificateDownloadLink(full.id, pagePath);
-                                html += certificateDeleteLink(full.id, pagePath);
+                                html += rimDetailsLink(full.id);
+                                html += rimDownloadLink(full.id, pagePath);
+                                html += rimDeleteLink(full.id, pagePath);
 
                                 return html;
                             }

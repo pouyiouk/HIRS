@@ -8,20 +8,26 @@ import hirs.attestationca.exceptions.IdentityProcessingException;
 import hirs.attestationca.exceptions.UnexpectedServerException;
 import hirs.attestationca.service.SupplyChainValidationService;
 import hirs.data.persist.AppraisalStatus;
+import hirs.data.persist.BaseReferenceManifest;
+import hirs.data.persist.EventLogMeasurements;
 import hirs.data.persist.Device;
 import hirs.data.persist.DeviceInfoReport;
-import hirs.data.persist.FirmwareInfo;
-import hirs.data.persist.HardwareInfo;
-import hirs.data.persist.NetworkInfo;
-import hirs.data.persist.OSInfo;
+import hirs.data.persist.ReferenceManifest;
+import hirs.data.persist.SupportReferenceManifest;
+import hirs.data.persist.SwidResource;
+import hirs.data.persist.info.FirmwareInfo;
+import hirs.data.persist.info.HardwareInfo;
+import hirs.data.persist.info.NetworkInfo;
+import hirs.data.persist.info.OSInfo;
 import hirs.data.persist.SupplyChainValidationSummary;
-import hirs.data.persist.TPMInfo;
+import hirs.data.persist.info.TPMInfo;
 import hirs.data.persist.certificate.Certificate;
 import hirs.data.persist.certificate.EndorsementCredential;
 import hirs.data.persist.certificate.IssuedAttestationCertificate;
 import hirs.data.persist.certificate.PlatformCredential;
 import hirs.data.service.DeviceRegister;
 import hirs.persist.CertificateManager;
+import hirs.persist.ReferenceManifestManager;
 import hirs.persist.DBManager;
 import hirs.persist.DeviceManager;
 import hirs.persist.TPM2ProvisionerState;
@@ -65,6 +71,7 @@ import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
@@ -80,10 +87,13 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.RSAPublicKeySpec;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Provides base implementation of common tasks of an ACA that are required for attestation of an
@@ -102,6 +112,11 @@ public abstract class AbstractAttestationCertificateAuthority
      */
     private static final BigInteger EXPONENT = new BigInteger("010001",
             AttestationCertificateAuthority.DEFAULT_IV_SIZE);
+    private static final String CATALINA_HOME = System.getProperty("catalina.base");
+    private static final String TOMCAT_UPLOAD_DIRECTORY
+            = "/webapps/HIRS_AttestationCA/upload/";
+    private static final String PCR_UPLOAD_FOLDER
+            = CATALINA_HOME + TOMCAT_UPLOAD_DIRECTORY;
 
     /**
      * Number of bytes to include in the TPM2.0 nonce.
@@ -120,7 +135,7 @@ public abstract class AbstractAttestationCertificateAuthority
     private static final String AK_NAME_PREFIX = "000b";
     private static final String AK_NAME_HASH_PREFIX =
             "0001000b00050072000000100014000b0800000000000100";
-    private static final String TPM_SIGNATURE_ALG = "sha256";
+    private static final String TPM_SIGNATURE_ALG = "sha";
 
     private static final int MAC_BYTES = 6;
 
@@ -152,12 +167,13 @@ public abstract class AbstractAttestationCertificateAuthority
     private final Integer validDays;
 
     private final CertificateManager certificateManager;
+    private final ReferenceManifestManager referenceManifestManager;
     private final DeviceRegister deviceRegister;
     private final DeviceManager deviceManager;
     private final DBManager<TPM2ProvisionerState> tpm2ProvisionerStateDBManager;
-    private String[] pcrsList;
-    private String tpmQuoteHash;
-    private String tpmSignatureHash;
+    private String tpmQuoteHash = "";
+    private String tpmQuoteSignature = "";
+    private String pcrValues;
 
     /**
      * Constructor.
@@ -166,6 +182,7 @@ public abstract class AbstractAttestationCertificateAuthority
      * @param acaCertificate the ACA certificate
      * @param structConverter the struct converter
      * @param certificateManager the certificate manager
+     * @param referenceManifestManager the Reference Manifest manager
      * @param deviceRegister the device register
      * @param validDays the number of days issued certs are valid
      * @param deviceManager the device manager
@@ -177,6 +194,7 @@ public abstract class AbstractAttestationCertificateAuthority
             final PrivateKey privateKey, final X509Certificate acaCertificate,
             final StructConverter structConverter,
             final CertificateManager certificateManager,
+            final ReferenceManifestManager referenceManifestManager,
             final DeviceRegister deviceRegister, final int validDays,
             final DeviceManager deviceManager,
             final DBManager<TPM2ProvisionerState> tpm2ProvisionerStateDBManager) {
@@ -185,6 +203,7 @@ public abstract class AbstractAttestationCertificateAuthority
         this.acaCertificate = acaCertificate;
         this.structConverter = structConverter;
         this.certificateManager = certificateManager;
+        this.referenceManifestManager = referenceManifestManager;
         this.deviceRegister = deviceRegister;
         this.validDays = validDays;
         this.deviceManager = deviceManager;
@@ -210,12 +229,10 @@ public abstract class AbstractAttestationCertificateAuthority
         IdentityRequestEnvelope challenge =
                 structConverter.convert(identityRequest, IdentityRequestEnvelope.class);
 
-        //
         byte[] identityProof = unwrapIdentityRequest(challenge.getRequest());
         // the decrypted symmetric blob should be in the format of an IdentityProof. Use the
         // struct converter to generate it.
         IdentityProof proof = structConverter.convert(identityProof, IdentityProof.class);
-
 
         // convert the credential into an actual key.
         LOG.debug("assembling public endorsement key");
@@ -293,7 +310,6 @@ public abstract class AbstractAttestationCertificateAuthority
         // update the validation result in the device
         device.setSupplyChainStatus(summary.getOverallValidationResult());
         deviceManager.updateDevice(device);
-
         // check if supply chain validation succeeded.
         // If it did not, do not provide the IdentityResponseEnvelope
         if (summary.getOverallValidationResult() == AppraisalStatus.Status.PASS) {
@@ -372,7 +388,8 @@ public abstract class AbstractAttestationCertificateAuthority
      * Basic implementation of the ACA processIdentityClaimTpm2 method. Parses the claim,
      * stores the device info, performs supply chain validation, generates a nonce,
      * and wraps that nonce with the make credential process before returning it to the client.
-     *
+     *            attCert.setPcrValues(pcrValues);
+
      * @param identityClaim the request to process, cannot be null
      * @return an identity claim response for the specified request containing a wrapped blob
      */
@@ -393,9 +410,9 @@ public abstract class AbstractAttestationCertificateAuthority
         // parse the EK Public key from the IdentityClaim once for use in supply chain validation
         // and later tpm20MakeCredential function
         RSAPublicKey ekPub = parsePublicKey(claim.getEkPublicArea().toByteArray());
+        AppraisalStatus.Status validationResult = AppraisalStatus.Status.FAIL;
 
-        AppraisalStatus.Status validationResult = doSupplyChainValidation(claim, ekPub);
-
+        validationResult = doSupplyChainValidation(claim, ekPub);
         if (validationResult == AppraisalStatus.Status.PASS) {
 
             RSAPublicKey akPub = parsePublicKey(claim.getAkPublicArea().toByteArray());
@@ -443,11 +460,39 @@ public abstract class AbstractAttestationCertificateAuthority
         // perform supply chain validation
         SupplyChainValidationSummary summary = supplyChainValidationService.validateSupplyChain(
                 endorsementCredential, platformCredentials, device);
-
+        device.setSummaryId(summary.getId().toString());
         // update the validation result in the device
         AppraisalStatus.Status validationResult = summary.getOverallValidationResult();
         device.setSupplyChainStatus(validationResult);
         deviceManager.updateDevice(device);
+        return validationResult;
+    }
+
+    /**
+     * Performs supply chain validation for just the quote under Firmware validation.
+     * Performed after main supply chain validation and a certificate request.
+     *
+     * @param device associated device to validate.
+     * @return the {@link AppraisalStatus} of the supply chain validation
+     */
+    private AppraisalStatus.Status doQuoteValidation(final Device device) {
+        // perform supply chain validation
+        SupplyChainValidationSummary scvs = supplyChainValidationService.validateQuote(
+                device);
+        AppraisalStatus.Status validationResult;
+
+        // either validation wasn't enabled or device already failed
+        if (scvs == null) {
+            // this will just allow for the certificate to be saved.
+            validationResult = AppraisalStatus.Status.PASS;
+        } else {
+            device.setSummaryId(scvs.getId().toString());
+            // update the validation result in the device
+            validationResult = scvs.getOverallValidationResult();
+            device.setSupplyChainStatus(validationResult);
+            deviceManager.updateDevice(device);
+        }
+
         return validationResult;
     }
 
@@ -498,37 +543,61 @@ public abstract class AbstractAttestationCertificateAuthority
             Set<PlatformCredential> platformCredentials = parsePcsFromIdentityClaim(claim,
                     endorsementCredential);
 
-            // Parse through the Provisioner supplied TPM Quote and pcr values
-            // these fields are optional
-            if (request.getQuote() != null && !request.getQuote().isEmpty()) {
-                parseTPMQuote(request.getQuote().toStringUtf8());
-            }
-            if (request.getPcrslist() != null && !request.getPcrslist().isEmpty()) {
-                parsePCRValues(request.getPcrslist().toStringUtf8());
-            }
-
             // Get device name and device
             String deviceName = claim.getDv().getNw().getHostname();
             Device device = deviceManager.getDevice(deviceName);
 
-            // Create signed, attestation certificate
-            X509Certificate attestationCertificate = generateCredential(akPub,
-                    endorsementCredential, platformCredentials, deviceName);
-            byte[] derEncodedAttestationCertificate = getDerEncodedCertificate(
-                    attestationCertificate);
+            // Parse through the Provisioner supplied TPM Quote and pcr values
+            // these fields are optional
+            if (request.getQuote() != null && !request.getQuote().isEmpty()) {
+                parseTPMQuote(request.getQuote().toStringUtf8());
+                TPMInfo savedInfo = device.getDeviceInfo().getTPMInfo();
+                TPMInfo tpmInfo = new TPMInfo(savedInfo.getTPMMake(),
+                        savedInfo.getTPMVersionMajor(),
+                        savedInfo.getTPMVersionMinor(),
+                        savedInfo.getTPMVersionRevMajor(),
+                        savedInfo.getTPMVersionRevMinor(),
+                        savedInfo.getPcrValues(),
+                        this.tpmQuoteHash.getBytes(StandardCharsets.UTF_8),
+                        this.tpmQuoteSignature.getBytes(StandardCharsets.UTF_8));
 
-            // We validated the nonce and made use of the identity claim so state can be deleted
-            tpm2ProvisionerStateDBManager.delete(tpm2ProvisionerState);
+                DeviceInfoReport dvReport = new DeviceInfoReport(
+                        device.getDeviceInfo().getNetworkInfo(),
+                        device.getDeviceInfo().getOSInfo(),
+                        device.getDeviceInfo().getFirmwareInfo(),
+                        device.getDeviceInfo().getHardwareInfo(), tpmInfo,
+                        claim.getClientVersion());
+                device = this.deviceRegister.saveOrUpdateDevice(dvReport);
+            }
 
-            // Package the signed certificate into a response
-            ByteString certificateBytes = ByteString.copyFrom(derEncodedAttestationCertificate);
-            ProvisionerTpm2.CertificateResponse response = ProvisionerTpm2.CertificateResponse
-                    .newBuilder().setCertificate(certificateBytes).build();
+            AppraisalStatus.Status validationResult = doQuoteValidation(device);
+            if (validationResult == AppraisalStatus.Status.PASS) {
+                // Create signed, attestation certificate
+                X509Certificate attestationCertificate = generateCredential(akPub,
+                        endorsementCredential, platformCredentials, deviceName);
+                byte[] derEncodedAttestationCertificate = getDerEncodedCertificate(
+                        attestationCertificate);
 
-            saveAttestationCertificate(derEncodedAttestationCertificate, endorsementCredential,
-                    platformCredentials, device);
+                // We validated the nonce and made use of the identity claim so state can be deleted
+                tpm2ProvisionerStateDBManager.delete(tpm2ProvisionerState);
 
-            return response.toByteArray();
+                // Package the signed certificate into a response
+                ByteString certificateBytes = ByteString.copyFrom(derEncodedAttestationCertificate);
+                ProvisionerTpm2.CertificateResponse response = ProvisionerTpm2.CertificateResponse
+                        .newBuilder().setCertificate(certificateBytes).build();
+
+                saveAttestationCertificate(derEncodedAttestationCertificate, endorsementCredential,
+                        platformCredentials, device);
+
+                return response.toByteArray();
+            } else {
+                LOG.error("Supply chain validation did not succeed. "
+                        + "Firmware Quote Validation failed. Result is: "
+                        + validationResult);
+                ProvisionerTpm2.CertificateResponse response = ProvisionerTpm2.CertificateResponse
+                        .newBuilder().setCertificate(ByteString.EMPTY).build();
+                return response.toByteArray();
+            }
         } else {
             LOG.error("Could not process credential request. Invalid nonce provided: "
                     + request.getNonce().toString());
@@ -541,7 +610,8 @@ public abstract class AbstractAttestationCertificateAuthority
      * quote and the signature hash.
      * @param tpmQuote contains hash values for the quote and the signature
      */
-    private void parseTPMQuote(final String tpmQuote) {
+    private boolean parseTPMQuote(final String tpmQuote) {
+        boolean success = false;
         if (tpmQuote != null) {
             String[] lines = tpmQuote.split(":");
             if (lines[1].contains("signature")) {
@@ -549,29 +619,35 @@ public abstract class AbstractAttestationCertificateAuthority
             } else {
                 this.tpmQuoteHash = lines[1].trim();
             }
-            this.tpmSignatureHash = lines[2].trim();
+            this.tpmQuoteSignature = lines[2].trim();
+            success = true;
         }
+
+        return success;
     }
 
     /**
      * This method splits all hashed pcr values into an array.
      * @param pcrValues contains the full list of 24 pcr values
      */
-    private void parsePCRValues(final String pcrValues) {
+    private String[] parsePCRValues(final String pcrValues) {
         String[] pcrs = null;
 
         if (pcrValues != null) {
             int counter = 0;
             String[] lines = pcrValues.split("\\r?\\n");
             pcrs = new String[lines.length - 1];
+
             for (String line : lines) {
-                if (!line.contains(TPM_SIGNATURE_ALG)) {
+                if (!line.isEmpty()
+                        && !line.contains(TPM_SIGNATURE_ALG)) {
+                    LOG.error(line);
                     pcrs[counter++] = line.split(":")[1].trim();
                 }
             }
         }
 
-        this.pcrsList = pcrs;
+        return pcrs;
     }
 
     /**
@@ -589,8 +665,7 @@ public abstract class AbstractAttestationCertificateAuthority
         byte[] modulus = HexUtils.subarray(publicArea,
                 pubLen - RSA_MODULUS_LENGTH,
                 pubLen - 1);
-        RSAPublicKey pub = (RSAPublicKey) assemblePublicKey(modulus);
-        return pub;
+        return (RSAPublicKey) assemblePublicKey(modulus);
     }
 
     /**
@@ -598,6 +673,7 @@ public abstract class AbstractAttestationCertificateAuthority
      * @param claim the protobuf serialized identity claim containing the device info
      * @return a HIRS Utils DeviceInfoReport representation of device info
      */
+    @SuppressWarnings("methodlength")
     private DeviceInfoReport parseDeviceInfo(final ProvisionerTpm2.IdentityClaim claim) {
         ProvisionerTpm2.DeviceInfo dv = claim.getDv();
 
@@ -614,9 +690,10 @@ public abstract class AbstractAttestationCertificateAuthority
 
         // convert mac hex string to byte values
         byte[] macAddressBytes = new byte[MAC_BYTES];
+        Integer hex;
         if (macAddressParts.length == MAC_BYTES) {
             for (int i = 0; i < MAC_BYTES; i++) {
-                Integer hex = HexUtils.hexToInt(macAddressParts[i]);
+                hex = HexUtils.hexToInt(macAddressParts[i]);
                 macAddressBytes[i] = hex.byteValue();
             }
         }
@@ -648,9 +725,141 @@ public abstract class AbstractAttestationCertificateAuthority
                 hwProto.getProductVersion(), hwProto.getSystemSerialNumber(),
                 firstChassisSerialNumber, firstBaseboardSerialNumber);
 
+        if (dv.hasPcrslist()) {
+            this.pcrValues = dv.getPcrslist().toStringUtf8();
+        }
+
+        // check for RIM Base and Support files, if they don't exists in the database, load them
+        String clientName = String.format("%s_%s",
+                dv.getHw().getManufacturer(),
+                dv.getHw().getProductName());
+        ReferenceManifest dbBaseRim = null;
+        ReferenceManifest support;
+        String tagId = "";
+        String fileName = "";
+        Pattern pattern = Pattern.compile("([^\\s]+(\\.(?i)(rimpcr|rimel|bin|log))$)");
+        Matcher matcher;
+
+        if (dv.getSwidfileCount() > 0) {
+            for (ByteString swidFile : dv.getSwidfileList()) {
+                try {
+                    dbBaseRim = BaseReferenceManifest.select(referenceManifestManager)
+                            .includeArchived()
+                            .byHashCode(Arrays.hashCode(swidFile.toByteArray()))
+                            .getRIM();
+
+                    if (dbBaseRim == null) {
+                        dbBaseRim = new BaseReferenceManifest(
+                                String.format("%s.swidtag",
+                                        clientName),
+                                swidFile.toByteArray());
+
+                        BaseReferenceManifest base = (BaseReferenceManifest) dbBaseRim;
+                        for (SwidResource swid : base.parseResource()) {
+                            matcher = pattern.matcher(swid.getName());
+                            if (matcher.matches()) {
+                                //found the file name
+                                int dotIndex = swid.getName().lastIndexOf(".");
+                                clientName = swid.getName().substring(0, dotIndex);
+                                dbBaseRim = new BaseReferenceManifest(
+                                        String.format("%s.swidtag",
+                                                clientName),
+                                        swidFile.toByteArray());
+                                break;
+                            }
+                        }
+                        this.referenceManifestManager.save(dbBaseRim);
+                    } else {
+                        LOG.info("Client provided Base RIM already loaded in database.");
+                        dbBaseRim.restore();
+                        dbBaseRim.resetCreateTime();
+                        this.referenceManifestManager.update(dbBaseRim);
+                    }
+
+                    tagId = dbBaseRim.getTagId();
+                } catch (IOException ioEx) {
+                    LOG.error(ioEx);
+                }
+            }
+        } else {
+            LOG.warn("Device did not send swid tag file...");
+        }
+
+        if (dv.getLogfileCount() > 0) {
+            for (ByteString logFile : dv.getLogfileList()) {
+                try {
+                    support = SupportReferenceManifest.select(referenceManifestManager)
+                            .includeArchived()
+                            .byHashCode(Arrays.hashCode(logFile.toByteArray()))
+                            .getRIM();
+
+                    if (support == null) {
+                        support = new SupportReferenceManifest(
+                                String.format("%s.rimel",
+                                        clientName),
+                                logFile.toByteArray());
+                        support.setPlatformManufacturer(dv.getHw().getManufacturer());
+                        support.setPlatformModel(dv.getHw().getProductName());
+                        support.setTagId(tagId);
+                        this.referenceManifestManager.save(support);
+                    } else {
+                        LOG.info("Client provided Support RIM already loaded in database.");
+                        if (dbBaseRim != null) {
+                            support.setPlatformManufacturer(dbBaseRim.getPlatformManufacturer());
+                            support.setPlatformModel(dbBaseRim.getPlatformModel());
+                            support.setSwidTagVersion(dbBaseRim.getSwidTagVersion());
+                            support.setAssociatedRim(dbBaseRim.getId());
+                            support.setTagId(dbBaseRim.getTagId());
+                        }
+
+                        support.restore();
+                        support.resetCreateTime();
+                        this.referenceManifestManager.update(support);
+                    }
+                } catch (IOException ioEx) {
+                    LOG.error(ioEx);
+                }
+            }
+        } else {
+            LOG.warn("Device did not send support RIM file...");
+        }
+
+        if (dv.hasLivelog()) {
+            LOG.info("Device sent bios measurement log...");
+            fileName = String.format("%s.measurement",
+                    clientName);
+            try {
+                // find previous version.  If it exists, delete it
+                support = EventLogMeasurements.select(referenceManifestManager)
+                        .byManufacturer(dv.getHw().getManufacturer())
+                        .includeArchived().getRIM();
+                if (support != null) {
+                    LOG.info("Previous bios measurement log found and being replaced...");
+                    this.referenceManifestManager.delete(support);
+                }
+                support = new EventLogMeasurements(fileName,
+                        dv.getLivelog().toByteArray());
+                support.setPlatformManufacturer(dv.getHw().getManufacturer());
+                support.setPlatformModel(dv.getHw().getProductName());
+                support.setTagId(tagId);
+                this.referenceManifestManager.save(support);
+            } catch (IOException ioEx) {
+                LOG.error(ioEx);
+            }
+        } else {
+            LOG.warn("Device did not send bios measurement log...");
+        }
 
         // Get TPM info, currently unimplemented
-        TPMInfo tpm = new TPMInfo();
+        TPMInfo tpm;
+        tpm = new TPMInfo(DeviceInfoReport.NOT_SPECIFIED,
+                (short) 0,
+                (short) 0,
+                (short) 0,
+                (short) 0,
+                this.pcrValues.getBytes(StandardCharsets.UTF_8),
+                this.tpmQuoteHash.getBytes(StandardCharsets.UTF_8),
+                this.tpmQuoteSignature.getBytes(StandardCharsets.UTF_8));
 
         // Create final report
         DeviceInfoReport dvReport = new DeviceInfoReport(nw, os, fw, hw, tpm,
@@ -877,7 +1086,6 @@ public abstract class AbstractAttestationCertificateAuthority
      * Assembles a public key using a defined big int modulus and the well known exponent.
      */
     private PublicKey assemblePublicKey(final BigInteger modulus) {
-
         // generate a key spec using mod and exp
         RSAPublicKeySpec keySpec = new RSAPublicKeySpec(modulus, EXPONENT);
 
@@ -1053,9 +1261,15 @@ public abstract class AbstractAttestationCertificateAuthority
                 IssuedCertificateAttributeHelper.buildSubjectAlternativeNameFromCerts(
                 endorsementCredential, platformCredentials, deviceName);
 
+            Extension authKeyIdentifier = IssuedCertificateAttributeHelper
+                    .buildAuthorityKeyIdentifier(endorsementCredential);
+
             builder.addExtension(subjectAlternativeName);
+            if (authKeyIdentifier != null) {
+                builder.addExtension(authKeyIdentifier);
+            }
             // identify cert as an AIK with this extension
-            if (null != IssuedCertificateAttributeHelper.EXTENDED_KEY_USAGE_EXTENSION) {
+            if (IssuedCertificateAttributeHelper.EXTENDED_KEY_USAGE_EXTENSION != null) {
                 builder.addExtension(IssuedCertificateAttributeHelper.EXTENDED_KEY_USAGE_EXTENSION);
             } else {
                 LOG.warn("Failed to build extended key usage extension and add to AIK");
@@ -1235,8 +1449,7 @@ public abstract class AbstractAttestationCertificateAuthority
     private byte[] cryptKDFa(final byte[] seed, final String label, final byte[] context,
                                    final int sizeInBytes)
             throws NoSuchAlgorithmException, InvalidKeyException {
-        ByteBuffer b;
-        b = ByteBuffer.allocate(4);
+        ByteBuffer b = ByteBuffer.allocate(4);
         b.putInt(1);
         byte[] counter = b.array();
         // get the label
@@ -1264,14 +1477,13 @@ public abstract class AbstractAttestationCertificateAuthority
         }
         System.arraycopy(desiredSizeInBits, 0, message, marker, 4);
         Mac hmac;
-        byte[] toReturn = null;
+        byte[] toReturn = new byte[sizeInBytes];
 
         hmac = Mac.getInstance("HmacSHA256");
         SecretKeySpec hmacKey = new SecretKeySpec(seed, hmac.getAlgorithm());
         hmac.init(hmacKey);
         hmac.update(message);
         byte[] hmacResult = hmac.doFinal();
-        toReturn = new byte[sizeInBytes];
         System.arraycopy(hmacResult, 0, toReturn, 0, sizeInBytes);
         return toReturn;
     }
@@ -1283,11 +1495,9 @@ public abstract class AbstractAttestationCertificateAuthority
      * @throws NoSuchAlgorithmException improper algorithm selected
      */
     private byte[] sha256hash(final byte[] blob) throws NoSuchAlgorithmException {
-        byte[] toReturn = null;
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         md.update(blob);
-        toReturn = md.digest();
-        return toReturn;
+        return md.digest();
     }
 
     /**

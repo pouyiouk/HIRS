@@ -153,6 +153,17 @@ public class CertificateRequestPageController extends PageController<NoPageParam
 
         return mav;
     }
+    /**
+     * TODO
+     * 1. add flag for rim validation dependent on pc attribute flag DONE
+     * 2. create tpmbaseline on upload of rimel file (DONE?)
+     *    a. add device id?  though one won't exist yet
+     * 3. validation
+     *    a. looks for baseline
+     *    b. if it doesn't find one, looks for rim
+     *          a. creates baseline if it exists
+     *    c. validates after reading rimel, if it finds one.
+     */
 
     /**
      * Queries for the list of Certificates and returns a data table response
@@ -182,7 +193,7 @@ public class CertificateRequestPageController extends PageController<NoPageParam
         CriteriaModifier criteriaModifier = new CriteriaModifier() {
             @Override
             public void modify(final Criteria criteria) {
-                criteria.add(Restrictions.isNull("archivedTime"));
+                criteria.add(Restrictions.isNull(Certificate.ARCHIVE_FIELD));
 
                 // add a device alias if this query includes the device table
                 // for getting the device (e.g. device name).
@@ -321,7 +332,7 @@ public class CertificateRequestPageController extends PageController<NoPageParam
         try {
             UUID uuid = UUID.fromString(id);
             Certificate certificate = getCertificateById(certificateType, uuid, certificateManager);
-            if (null == certificate) {
+            if (certificate == null) {
                 // Use the term "record" here to avoid user confusion b/t cert and cred
                 String notFoundMessage = "Unable to locate record with ID: " + uuid;
                 LOGGER.warn(notFoundMessage);
@@ -583,8 +594,6 @@ public class CertificateRequestPageController extends PageController<NoPageParam
      *
      * @param certificateType String containing the certificate type
      * @param file the file being uploaded from the portal
-     * @param model the map of page elements to populate with error messages
-     * upon failure
      * @param messages contains any messages that will be display on the page
      * @return the parsed certificate or null if parsing failed.
      */
@@ -602,8 +611,8 @@ public class CertificateRequestPageController extends PageController<NoPageParam
         try {
             fileBytes = file.getBytes();
         } catch (IOException e) {
-            final String failMessage = "Failed to read uploaded file ("
-                    + fileName + "): ";
+            final String failMessage = String.format(
+                    "Failed to read uploaded file (%s): ", fileName);
             LOGGER.error(failMessage, e);
             messages.addError(failMessage + e.getMessage());
             return null;
@@ -617,22 +626,21 @@ public class CertificateRequestPageController extends PageController<NoPageParam
                 case TRUSTCHAIN:
                     return new CertificateAuthorityCredential(fileBytes);
                 default:
-                    final String failMessage = "Failed to parse uploaded file ("
-                            + fileName + "). Invalid certificate type: "
-                            + certificateType;
+                    final String failMessage = String.format("Failed to parse uploaded file "
+                            + "(%s). Invalid certificate type: %s", fileName, certificateType);
                     LOGGER.error(failMessage);
                     messages.addError(failMessage);
                     return null;
             }
         } catch (IOException e) {
-            final String failMessage = "Failed to parse uploaded file ("
-                    + fileName + "): ";
+            final String failMessage = String.format(
+                    "Failed to parse uploaded file (%s): ", fileName);
             LOGGER.error(failMessage, e);
             messages.addError(failMessage + e.getMessage());
             return null;
         } catch (IllegalArgumentException e) {
-            final String failMessage = "Certificate format not recognized("
-                    + fileName + "): ";
+            final String failMessage = String.format(
+                    "Certificate format not recognized(%s): ", fileName);
             LOGGER.error(failMessage, e);
             messages.addError(failMessage + e.getMessage());
             return null;
@@ -721,15 +729,15 @@ public class CertificateRequestPageController extends PageController<NoPageParam
 
                 certificateManager.save(certificate);
 
-                final String successMsg = "New certificate successfully uploaded ("
-                    + fileName + ")";
+                final String successMsg
+                        = String.format("New certificate successfully uploaded (%s): ", fileName);
                 messages.addSuccess(successMsg);
                 LOGGER.info(successMsg);
                 return;
             }
         } catch (DBManagerException e) {
-            final String failMessage = "Storing new certificate failed ("
-                    + fileName + "): ";
+            final String failMessage = String.format("Storing new certificate failed (%s): ",
+                    fileName);
             messages.addError(failMessage + e.getMessage());
             LOGGER.error(failMessage, e);
             return;
@@ -743,15 +751,16 @@ public class CertificateRequestPageController extends PageController<NoPageParam
                 existingCertificate.resetCreateTime();
                 certificateManager.update(existingCertificate);
 
-                final String successMsg = "Pre-existing certificate found and unarchived ("
-                    + fileName + ")";
+                final String successMsg = String.format("Pre-existing certificate "
+                        + "found and unarchived (%s): ", fileName);
                 messages.addSuccess(successMsg);
                 LOGGER.info(successMsg);
                 return;
             }
         } catch (DBManagerException e) {
-            final String failMessage = "Found an identical pre-existing certificate in the "
-                    + "archive, but failed to unarchive it (" + fileName + "): ";
+            final String failMessage = String.format("Found an identical"
+                    + " pre-existing certificate in the "
+                    + "archive, but failed to unarchive it (%s): ", fileName);
             messages.addError(failMessage + e.getMessage());
             LOGGER.error(failMessage, e);
             return;
@@ -759,8 +768,8 @@ public class CertificateRequestPageController extends PageController<NoPageParam
 
         // if an identical certificate is already unarchived, do nothing and show a fail message
         final String failMessage
-                = "Storing certificate failed: an identical certificate already exists ("
-                    + fileName + ")";
+                = String.format("Storing certificate failed: an identical"
+                        + " certificate already exists (%s): ", fileName);
         messages.addError(failMessage);
         LOGGER.error(failMessage);
     }

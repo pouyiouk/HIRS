@@ -12,11 +12,17 @@ public class PolicyPageModel {
     private boolean enableEcValidation;
     private boolean enablePcCertificateValidation;
     private boolean enablePcCertificateAttributeValidation;
+    private boolean enableFirmwareValidation;
+    private boolean enableIgnoreIma;
+    private boolean enableIgnoreTboot;
 
     // Variables to get policy settings from page
     private String pcValidate;
     private String pcAttributeValidate;
     private String ecValidate;
+    private String fmValidate;
+    private String ignoreIma;
+    private String ignoretBoot;
 
     /**
      * Constructor. Sets fields from policy.
@@ -27,6 +33,9 @@ public class PolicyPageModel {
         this.enableEcValidation = policy.isEcValidationEnabled();
         this.enablePcCertificateValidation = policy.isPcValidationEnabled();
         this.enablePcCertificateAttributeValidation = policy.isPcAttributeValidationEnabled();
+        this.enableFirmwareValidation = policy.isFirmwareValidationEnabled();
+        this.enableIgnoreIma = policy.isIgnoreImaEnabled();
+        this.enableIgnoreTboot = policy.isIgnoreTbootEnabled();
     }
 
     /**
@@ -63,6 +72,31 @@ public class PolicyPageModel {
     }
 
     /**
+     * Gets the Firmware Validation state.
+     *
+     * @return the validation state.
+     */
+    public boolean getEnableFirmwareValidation() {
+        return enableFirmwareValidation;
+    }
+
+    /**
+     *  Gets the Enable Ignore IMA state.
+     * @return the validation state.
+     */
+    public boolean getEnableIgnoreIma() {
+        return enableIgnoreIma;
+    }
+
+    /**
+     * Gets the Enable Ignore TBoot state.
+     * @return the validation state.
+     */
+    public boolean getEnableIgnoreTboot() {
+        return enableIgnoreTboot;
+    }
+
+    /**
      * Gets the EC Validation value.
      *
      * @return the model string representation of this field (checked or unchecked)
@@ -87,6 +121,33 @@ public class PolicyPageModel {
      */
     public String getPcAttributeValidate() {
         return pcAttributeValidate;
+    }
+
+    /**
+     * Gets the Firmware Validation value.
+     *
+     * @return the model string representation of this field (checked or unchecked)
+     */
+    public String getFmValidate() {
+        return fmValidate;
+    }
+
+    /**
+     * Gets the Ignore IMA validation value.
+     *
+     * @return the model string representation of this field (checked or unchecked)
+     */
+    public String getIgnoreIma() {
+        return ignoreIma;
+    }
+
+    /**
+     * Gets the Ignore TBoot validation value.
+     *
+     * @return the model string representation of this field (checked or unchecked)
+     */
+    public String getIgnoretBoot() {
+        return ignoretBoot;
     }
 
     /**
@@ -118,6 +179,33 @@ public class PolicyPageModel {
     }
 
     /**
+     * Sets the Firmware Validation state.
+     *
+     * @param enableFirmwareValidation true if performing validation, false otherwise
+     */
+    public void setEnableFirmwareValidation(final boolean enableFirmwareValidation) {
+        this.enableFirmwareValidation = enableFirmwareValidation;
+    }
+
+    /**
+     * Sets the Enable Ignore IMA state.
+     *
+     * @param enableIgnoreIma true if performing validation, false otherwise
+     */
+    public void setEnableIgnoreIma(final boolean enableIgnoreIma) {
+        this.enableIgnoreIma = enableIgnoreIma;
+    }
+
+    /**
+     * Sets the Enable Ignore TBoot state.
+     *
+     * @param enableIgnoreTboot true if performing validation, false otherwise
+     */
+    public void setEnableIgnoreTboot(final boolean enableIgnoreTboot) {
+        this.enableIgnoreTboot = enableIgnoreTboot;
+    }
+
+    /**
      * Sets the Platform Certificate Validation state.
      *
      * @param pcValidate "checked" if enabling validation, false otherwise
@@ -144,12 +232,40 @@ public class PolicyPageModel {
         this.pcAttributeValidate = pcAttributeValidate;
     }
 
+    /**
+     * Sets the Firmware state.
+     *
+     * @param fmValidate "checked" if enabling validation, false otherwise
+     */
+    public void setFmValidate(final String fmValidate) {
+        this.fmValidate = fmValidate;
+    }
+
+    /**
+     * Sets the Ignore IMA state.
+     *
+     * @param ignoreIma "checked" if enabling validation, false otherwise
+     */
+    public void setIgnoreIma(final String ignoreIma) {
+        this.ignoreIma = ignoreIma;
+    }
+
+    /**
+     * Sets the Ignore Tboot state.
+     *
+     * @param ignoretBoot "checked" if enabling validation, false otherwise
+     */
+    public void setIgnoretBoot(final String ignoretBoot) {
+        this.ignoretBoot = ignoretBoot;
+    }
+
     @Override
     public String toString() {
         return "PolicyPageModel{"
                 + "enableEcValidation=" + enableEcValidation
                 + ", enablePcCertificateValidation=" + enablePcCertificateValidation
                 + ", enablePcCertificateAttributeValidation="
-                + enablePcCertificateAttributeValidation + '}';
+                + enablePcCertificateAttributeValidation
+                + ", enableFirmwareValidation=" + enableFirmwareValidation + '}';
     }
 }

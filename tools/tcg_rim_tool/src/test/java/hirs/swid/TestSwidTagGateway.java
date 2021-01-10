@@ -5,7 +5,9 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Paths;
 import java.util.Scanner;
+import java.net.URISyntaxException;
 
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -14,16 +16,24 @@ import org.testng.annotations.Test;
 
 public class TestSwidTagGateway {
 	private SwidTagGateway gateway;
-	private String inputFile, outputFile, hashType;
+	private SwidTagValidator validator;
+	private final String DEFAULT_OUTPUT = "generated_swidTag.swidtag";
+	private final String DEFAULT_WITH_CERT = "generated_with_cert.swidtag";
+	private final String DEFAULT_NO_CERT = "generated_no_cert.swidtag";
+	private final String ATTRIBUTES_FILE = TestSwidTagGateway.class.getClassLoader().getResource("rim_fields.json").getPath();
+	private final String JKS_KEYSTORE_FILE = TestSwidTagGateway.class.getClassLoader().getResource("keystore.jks").getPath();
+	private final String SIGNING_CERT_FILE = TestSwidTagGateway.class.getClassLoader().getResource("RimSignCert.pem").getPath();
+	private final String PRIVATE_KEY_FILE = TestSwidTagGateway.class.getClassLoader().getResource("privateRimKey.pem").getPath();
+	private final String SUPPORT_RIM_FILE = TestSwidTagGateway.class.getClassLoader().getResource("TpmLog.bin").getPath();
 	private InputStream expectedFile;
-	private static final String TEST_CSV_INPUT = "testCsv.swidtag";
-	private static final String TEST_BLANK_SWIDTAG = "generated_swidTag.swidtag";
-	
+
 	@BeforeClass
 	public void setUp() throws Exception {
 		gateway = new SwidTagGateway();
-		inputFile = TestSwidTagGateway.class.getClassLoader().getResource("examplecsv.csv").getFile();
-		hashType = "SHA256";
+		gateway.setRimEventLog(SUPPORT_RIM_FILE);
+		gateway.setAttributesFile(ATTRIBUTES_FILE);
+		validator = new SwidTagValidator();
+		validator.setRimEventLog(SUPPORT_RIM_FILE);
 	}
 
 	@AfterClass
@@ -33,56 +43,56 @@ public class TestSwidTagGateway {
 		}
 	}
 
+	/**
+	 * This test corresponds to the arguments:
+	 * -c base -l TpmLog.bin -k privateRimKey.pem -p RimSignCert.pem
+	 * where RimSignCert.pem has the AIA extension.
+	 */
 	@Test
-	public void testGenerateSwidTagStringStringString() {
-		outputFile = "testGenerateSwidTagStringStringString.swidtag";
-		gateway.generateSwidTag(inputFile, outputFile, hashType);
-		expectedFile = (InputStream) TestSwidTagGateway.class.getClassLoader().getResourceAsStream(TEST_CSV_INPUT);
-		Assert.assertTrue(compareFileBytesToExpectedFile(outputFile));
+	public void testCreateBaseWithCert() {
+		gateway.setDefaultCredentials(false);
+		gateway.setPemCertificateFile(SIGNING_CERT_FILE);
+		gateway.setPemPrivateKeyFile(PRIVATE_KEY_FILE);
+		gateway.generateSwidTag(DEFAULT_OUTPUT);
+		expectedFile = TestSwidTagGateway.class.getClassLoader().getResourceAsStream(DEFAULT_WITH_CERT);
+		Assert.assertTrue(compareFileBytesToExpectedFile(DEFAULT_OUTPUT));
 	}
 
+	/**
+	 * This test corresponds to the arguments:
+	 * -c base -l TpmLog.bin
+	 */
 	@Test
-	public void testGenerateSwidTagFile() {
-		outputFile = "testGenerateSwidTagFile.swidtag";
-		gateway.generateSwidTag(new File(outputFile));
-		expectedFile = (InputStream) TestSwidTagGateway.class.getClassLoader().getResourceAsStream(TEST_BLANK_SWIDTAG);
-		Assert.assertTrue(compareFileBytesToExpectedFile(outputFile));
+	public void testCreateBaseWithoutCert() {
+		gateway.setDefaultCredentials(true);
+		gateway.setJksKeystoreFile(JKS_KEYSTORE_FILE);
+		gateway.generateSwidTag(DEFAULT_OUTPUT);
+		expectedFile = TestSwidTagGateway.class.getClassLoader().getResourceAsStream(DEFAULT_NO_CERT);
+		Assert.assertTrue(compareFileBytesToExpectedFile(DEFAULT_OUTPUT));
 	}
 
+	/**
+	 * This test corresponds to the arguments:
+	 * -v <path>
+	 */
 	@Test
 	public void testValidateSwidTag() {
+		String filepath = TestSwidTagGateway.class.getClassLoader().getResource(DEFAULT_WITH_CERT).getPath();
+		System.out.println("Validating file at " + filepath);
 	    try {
-	        Assert.assertTrue(gateway.validateSwidTag(TestSwidTagGateway.class.getClassLoader().getResource(TEST_BLANK_SWIDTAG).getPath()));
+	        Assert.assertTrue(validator.validateSwidTag(filepath));
 	    } catch (IOException e) {
 	        Assert.fail("Invalid swidtag!");
-	    }
+	    } catch (NullPointerException e) {
+	    	Assert.fail("Cannot find file: " + filepath);
+		}
 	}
 
-	@Test
-	public void testParsePayload() {
-	    InputStream is = null;
-	    try {
-    		is = gateway.parsePayload(outputFile);
-    		Scanner scanner = new Scanner(is, "UTF-8");
-    		String test = "PCR0,18382098108101841048";
-    		String temp = "";
-    		while (scanner.hasNext()) {
-    		    temp = scanner.next();
-    		}
-    		Assert.assertEquals(test, temp);
-	    } catch (IOException e) {
-	        Assert.fail("Error parsing test file!");
-	    } finally {
-	        if (is != null) {
-	            try {
-	                is.close();
-	            } catch (IOException e) {
-	            	Assert.fail("Failed to close input stream!");
-	            }
-	        }
-	    }
-	}
-	
+	/**
+	 * This method compares two files by bytes to determine if they are the same or not.
+	 * @param file to be compared to the expected value.
+	 * @return true if they are equal, false if not.
+	 */
 	private boolean compareFileBytesToExpectedFile(String file) {
 		FileInputStream testFile = null;
 		try {

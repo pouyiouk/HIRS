@@ -4,13 +4,13 @@ import hirs.DeviceInfoReportRequest;
 import hirs.ReportRequest;
 import hirs.collector.CollectorException;
 import hirs.data.persist.DeviceInfoReport;
-import hirs.data.persist.FirmwareInfo;
-import hirs.data.persist.HardwareInfo;
-import hirs.data.persist.NetworkInfo;
-import hirs.data.persist.OSInfo;
-import hirs.data.persist.OSName;
+import hirs.data.persist.info.FirmwareInfo;
+import hirs.data.persist.info.HardwareInfo;
+import hirs.data.persist.info.NetworkInfo;
+import hirs.data.persist.info.OSInfo;
+import hirs.data.persist.enums.OSName;
 import hirs.data.persist.Report;
-import hirs.data.persist.TPMInfo;
+import hirs.data.persist.info.TPMInfo;
 import hirs.utils.exec.ExecBuilder;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -32,6 +32,7 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.cert.CertificateException;
@@ -362,7 +363,7 @@ public class DeviceInfoCollector extends AbstractCollector {
             if (debianRelease.exists()) {
                 try {
                     reader = new BufferedReader(new InputStreamReader(
-                            new FileInputStream(debianRelease), "UTF-8"));
+                            new FileInputStream(debianRelease), StandardCharsets.UTF_8));
                     while ((line = reader.readLine()) != null) {
                         String[] ubuntuTokens = line.split("=");
                         if (ubuntuTokens.length == 2) {
@@ -394,7 +395,7 @@ public class DeviceInfoCollector extends AbstractCollector {
             } else if (redhatRelease.exists()) {
                 try {
                     reader = new BufferedReader(new InputStreamReader(
-                            new FileInputStream(redhatRelease), "UTF-8"));
+                            new FileInputStream(redhatRelease), StandardCharsets.UTF_8));
                     while ((line = reader.readLine()) != null) {
                         String[] redhatTokens = line.split("release");
                         if (redhatTokens.length == 2) {
@@ -543,7 +544,7 @@ public class DeviceInfoCollector extends AbstractCollector {
             Process quoteProcess = processBuilder.start();
             quoteReader
                     = new BufferedReader(new InputStreamReader(
-                                    quoteProcess.getInputStream(), "utf-8"));
+                                    quoteProcess.getInputStream(), StandardCharsets.UTF_8));
         } catch (IOException e) {
             LOGGER.info("IOException occurred while attempting to read "
                     + "tpm_version command, assume the TPM is not present and "

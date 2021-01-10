@@ -39,3 +39,32 @@ DEFAULT_SITE_CONFIG_FILE
     echo "Set your site configuration manually in $HIRS_SITE_CONFIG, then run 'hirs-provisioner-tpm2 provision' to provision this system"
 fi
 ln -s -f /etc/hirs/provisioner/hirs-provisioner.sh /usr/sbin/hirs-provisioner
+
+TCG_BOOT_FILE="/etc/hirs/tcg_boot.properties"
+TCG_DIRECTORY="/boot/tcg"
+RIM_FILE_LOCATION="$TCG_DIRECTORY/manifest/rim/"
+SWIDTAG_FILE_LOCATION="$TCG_DIRECTORY/manifest/swidtag/"
+CREDENTIALS_LOCATION="$TCG_DIRECTORY/cert/platform/"
+BINARY_BIOS_MEASUREMENTS="/sys/kernel/security/tpm0/binary_bios_measurements"
+
+if [ ! -f "$TCG_BOOT_FILE" ]; then
+  touch "$TCG_BOOT_FILE"
+fi
+
+if [ -d "$RIM_FILE_LOCATION" ]; then
+  echo "tcg.rim.dir=$RIM_FILE_LOCATION" > "$TCG_BOOT_FILE"
+fi
+
+if [ -d "$SWIDTAG_FILE_LOCATION" ]; then
+  echo "tcg.swidtag.dir=$SWIDTAG_FILE_LOCATION" >> "$TCG_BOOT_FILE"
+fi
+
+if [ -d "$CREDENTIALS_LOCATION" ]; then
+  echo "tcg.cert.dir=$CREDENTIALS_LOCATION" >> "$TCG_BOOT_FILE"
+fi
+
+if [ -f "$BINARY_BIOS_MEASUREMENTS" ]; then
+  echo "tcg.event.file=$BINARY_BIOS_MEASUREMENTS" >> "$TCG_BOOT_FILE"
+fi
+
+chmod -w "$TCG_BOOT_FILE"

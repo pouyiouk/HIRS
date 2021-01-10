@@ -2,15 +2,16 @@ package hirs.validation;
 
 import hirs.client.collector.DeviceInfoCollector;
 import hirs.data.persist.AppraisalStatus;
-import hirs.data.persist.ComponentInfo;
+import hirs.data.persist.ArchivableEntity;
+import hirs.data.persist.info.ComponentInfo;
 import hirs.data.persist.DeviceInfoReport;
-import hirs.data.persist.FirmwareInfo;
-import hirs.data.persist.HardwareInfo;
-import hirs.data.persist.NICComponentInfo;
-import hirs.data.persist.NetworkInfo;
-import hirs.data.persist.OSInfo;
+import hirs.data.persist.info.FirmwareInfo;
+import hirs.data.persist.info.HardwareInfo;
+import hirs.data.persist.info.NICComponentInfo;
+import hirs.data.persist.info.NetworkInfo;
+import hirs.data.persist.info.OSInfo;
 import hirs.data.persist.SupplyChainValidation;
-import hirs.data.persist.TPMInfo;
+import hirs.data.persist.info.TPMInfo;
 import hirs.data.persist.certificate.Certificate;
 import hirs.data.persist.certificate.CertificateAuthorityCredential;
 import hirs.data.persist.certificate.CertificateTest;
@@ -2097,7 +2098,7 @@ public class SupplyChainCredentialValidatorTest {
         when(delta2.getComponentIdentifiers()).thenReturn(delta2List);
 
         Map<PlatformCredential, SupplyChainValidation> chainCredentials = new HashMap<>(0);
-        List<Certificate> certsUsed = new ArrayList<>();
+        List<ArchivableEntity> certsUsed = new ArrayList<>();
         certsUsed.add(base);
         chainCredentials.put(base, new SupplyChainValidation(
                 SupplyChainValidation.ValidationType.PLATFORM_CREDENTIAL,
@@ -2202,7 +2203,7 @@ public class SupplyChainCredentialValidatorTest {
         when(delta1.getComponentIdentifiers()).thenReturn(delta1List);
 
         Map<PlatformCredential, SupplyChainValidation> chainCredentials = new HashMap<>(0);
-        List<Certificate> certsUsed = new ArrayList<>();
+        List<ArchivableEntity> certsUsed = new ArrayList<>();
         certsUsed.add(base);
         chainCredentials.put(base, new SupplyChainValidation(
                 SupplyChainValidation.ValidationType.PLATFORM_CREDENTIAL,

@@ -240,7 +240,7 @@ public class PlatformCredential extends DeviceAssociatedCertificate {
     @Column
     private String platformClass = null;
 
-    @Column
+    @Column(length = MAX_MESSAGE_LENGTH)
     private String componentFailures = Strings.EMPTY;
 
     @Transient
@@ -766,6 +766,7 @@ public class PlatformCredential extends DeviceAssociatedCertificate {
                             new PlatformConfigurationV2(attributeSequence));
                     break;
                 case TCG_PLATFORM_SPECIFICATION:
+                case PLATFORM_CREDENTIAL_TYPE:
                     // handled in parseFields
                     break;
                 case TCG_CREDENTIAL_SPECIFICATION:

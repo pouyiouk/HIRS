@@ -4,9 +4,9 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hirs.data.persist.AppraisalStatus;
-import hirs.data.persist.ComponentInfo;
+import hirs.data.persist.info.ComponentInfo;
 import hirs.data.persist.DeviceInfoReport;
-import hirs.data.persist.HardwareInfo;
+import hirs.data.persist.info.HardwareInfo;
 import hirs.data.persist.certificate.EndorsementCredential;
 import hirs.data.persist.certificate.PlatformCredential;
 import hirs.data.persist.certificate.attributes.ComponentIdentifier;
@@ -55,8 +55,8 @@ import java.util.stream.Collectors;
 import static hirs.data.persist.AppraisalStatus.Status.ERROR;
 import static hirs.data.persist.AppraisalStatus.Status.FAIL;
 import static hirs.data.persist.AppraisalStatus.Status.PASS;
+import hirs.data.persist.ArchivableEntity;
 import hirs.data.persist.SupplyChainValidation;
-import hirs.data.persist.certificate.Certificate;
 import hirs.data.persist.certificate.attributes.V2.ComponentIdentifierV2;
 import java.util.Collections;
 import java.util.Comparator;
@@ -89,6 +89,11 @@ public final class SupplyChainCredentialValidator implements CredentialValidator
      */
     public static final String PLATFORM_ATTRIBUTES_VALID =
             "Platform credential attributes validated";
+
+    /**
+     * AppraisalStatus message for a valid platform credential appraisal.
+     */
+    public static final String FIRMWARE_VALID = "Firmware validated";
 
     private static final Map<PlatformCredential, StringBuilder> DELTA_FAILURES = new HashMap<>();
 
@@ -163,12 +168,12 @@ public final class SupplyChainCredentialValidator implements CredentialValidator
         }
         try {
             if (trustStore == null || trustStore.size() == 0) {
-                message = baseErrorMessage + "a trust store\n";
+                message = baseErrorMessage + "an Issuer Cert in the Trust Store\n";
                 LOGGER.error(message);
                 return new AppraisalStatus(FAIL, message);
             }
         } catch (KeyStoreException e) {
-            message = baseErrorMessage + "an intitialized trust store";
+            message = baseErrorMessage + "an initialized trust store";
             LOGGER.error(message);
             return new AppraisalStatus(FAIL, message);
         }
@@ -587,7 +592,7 @@ public final class SupplyChainCredentialValidator implements CredentialValidator
         });
 
         String ciSerial;
-        List<Certificate> certificateList = null;
+        List<ArchivableEntity> certificateList = null;
         SupplyChainValidation scv = null;
         resultMessage.append("There are errors with Delta "
                     + "Component Statuses components:\n");
@@ -847,11 +852,11 @@ public final class SupplyChainCredentialValidator implements CredentialValidator
             LOGGER.error(String.format("Platform Credential contained %d unmatched components:",
                     pcUnmatchedComponents.size()));
 
-            int umatchedComponentCounter = 1;
+            int unmatchedComponentCounter = 1;
             for (ComponentIdentifier unmatchedComponent : pcUnmatchedComponents) {
-                LOGGER.error("Unmatched component " + umatchedComponentCounter++ + ": "
+                LOGGER.error("Unmatched component " + unmatchedComponentCounter++ + ": "
                         + unmatchedComponent);
-                sb.append(String.format("Manufacturer=%s, Model=%s, Serial=%s, Revision=%s%n",
+                sb.append(String.format("Manufacturer=%s, Model=%s, Serial=%s, Revision=%s;%n",
                         unmatchedComponent.getComponentManufacturer(),
                         unmatchedComponent.getComponentModel(),
                         unmatchedComponent.getComponentSerial(),

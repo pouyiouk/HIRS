@@ -10,6 +10,8 @@ import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlAttribute;
 import javax.xml.bind.annotation.XmlElement;
+import org.apache.commons.codec.DecoderException;
+import org.apache.commons.codec.binary.Hex;
 
 /**
  * Class represents a Trusted Platform Module (TPM) Platform Configuration
@@ -32,6 +34,16 @@ public final class TPMMeasurementRecord extends ExaminableRecord {
      */
     public static final int MAX_PCR_ID = 23;
 
+    /**
+     * String length of a SHA 1 PCR value.
+     */
+    public static final int SHA_BYTE_LENGTH = 40;
+
+    /**
+     * String length of a 256 SHA PCR value.
+     */
+    public static final int SHA_256_BYTE_LENGTH = 64;
+
     private static final Logger LOGGER =
             LogManager.getLogger(TPMMeasurementRecord.class);
 
@@ -43,15 +55,13 @@ public final class TPMMeasurementRecord extends ExaminableRecord {
     private final Digest hash;
 
     /**
-     * Constructor initializes values associated with PCRMeasurementRecord.
+     * Constructor initializes values associated with TPMMeasurementRecord.
      *
-     * @param pcrId
-     *            is the TPM PCR index. pcrId must be between 0 and 23.
+     * @param pcrId is the TPM PCR index. pcrId must be between 0 and 23.
      * @param hash
      *            represents the measurement digest found at the particular PCR
      *            index.
-     * @throws IllegalArgumentException
-     *             if digest algorithm is not SHA-1
+     * @throws IllegalArgumentException if pcrId is not valid
      */
     public TPMMeasurementRecord(final int pcrId, final Digest hash)
             throws IllegalArgumentException {
@@ -64,6 +74,30 @@ public final class TPMMeasurementRecord extends ExaminableRecord {
 
         this.pcrId = pcrId;
         this.hash = hash;
+    }
+
+    /**
+     * Constructor initializes values associated with TPMMeasurementRecord.
+     *
+     * @param pcrId is the TPM PCR index. pcrId must be between 0 and 23.
+     * @param hash represents the measurement digest found at the particular PCR
+     *            index.
+     * @throws DecoderException if there is a decode issue with string hex.
+     */
+    public TPMMeasurementRecord(final int pcrId, final String hash)
+            throws DecoderException {
+        this(pcrId, new Digest(Hex.decodeHex(hash.toCharArray())));
+    }
+
+    /**
+     * Constructor initializes values associated with TPMMeasurementRecord.
+     *
+     * @param pcrId is the TPM PCR index. pcrId must be between 0 and 23.
+     * @param hash represents the measurement digest found at the particular PCR
+     *            index.
+     */
+    public TPMMeasurementRecord(final int pcrId, final byte[] hash) {
+        this(pcrId, new Digest(hash));
     }
 
     /**

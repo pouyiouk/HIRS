@@ -1,44 +1,82 @@
 package hirs.swid;
 
 import hirs.swid.utils.Commander;
+import com.beust.jcommander.JCommander;
+
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
-/*
- * Command-line application for generating and validating SWID tags.
- * Input arg: path to *.swidtag file
- * 
- * If an argument is given it will be validated against the schema at http://standards.iso.org/iso/19770/-2/2015/schema.xsd
- * If an argument is not given a SWID tag file will be generated.
- */
 public class Main {
 
     public static void main(String[] args) {
-        Commander commander = new Commander(args);
+        Commander commander = new Commander();
+        JCommander jc = JCommander.newBuilder().addObject(commander).build();
+        jc.parse(args);
+        SwidTagGateway gateway;
+        SwidTagValidator validator;
 
-        if (commander.hasArguments()) {
-            // we have arguments to work with
-            if (commander.create()) {
-                // parsing the arguments detected a create parameter (-c)
-                (new SwidTagGateway()).generateSwidTag(commander.getCreateInFile(),
-                        commander.getCreateOutFile(), commander.getHashAlg());
-            } else if (commander.validate()) {
-                // parsing the arguments detected a validation parameter (-v)
-                try {
-                    (new SwidTagGateway()).validateSwidTag(commander.getValidateFile());
-                } catch (IOException e) {
-                    System.out.println("Unable to validate file: " + e.getMessage());
+        if (commander.isHelp()) {
+            jc.usage();
+            System.out.println(commander.printHelpExamples());
+        } else {
+            if (!commander.getVerifyFile().isEmpty()) {
+                validator = new SwidTagValidator();
+                System.out.println(commander.toString());
+                String verifyFile = commander.getVerifyFile();
+                String rimel = commander.getRimEventLog();
+                String certificateFile = commander.getPublicCertificate();
+                if (!verifyFile.isEmpty()) {
+                    if (!rimel.isEmpty()) {
+                        validator.setRimEventLog(rimel);
+                    }
+                    if (!certificateFile.isEmpty()) {
+                        validator.setCertificateFile(certificateFile);
+                    }
+                    try {
+                        validator.validateSwidTag(verifyFile);
+                    } catch (IOException e) {
+                        System.out.println("Error validating RIM file: " + e.getMessage());
+                        System.exit(1);
+                    }
+                } else {
+                    System.out.println("Need a RIM file to validate!");
+                    System.exit(1);
                 }
-            } else if (commander.parse()) {
-                try {
-                    (new SwidTagGateway()).parsePayload(commander.getParseFile());
-                } catch (IOException e) {
-                    System.out.println("Unable to parse file: " + e.getMessage());
+            } else {
+                gateway = new SwidTagGateway();
+                System.out.println(commander.toString());
+                String createType = commander.getCreateType().toUpperCase();
+                String attributesFile = commander.getAttributesFile();
+                String jksKeystoreFile = commander.getKeystoreFile();
+                String certificateFile = commander.getPublicCertificate();
+                String privateKeyFile = commander.getPrivateKeyFile();
+                String rimEventLog = commander.getRimEventLog();
+                switch (createType) {
+                    case "BASE":
+                        if (!attributesFile.isEmpty()) {
+                            gateway.setAttributesFile(attributesFile);
+                        }
+                        if (!jksKeystoreFile.isEmpty()) {
+                            gateway.setDefaultCredentials(true);
+                            gateway.setJksKeystoreFile(jksKeystoreFile);
+                        } else if (!certificateFile.isEmpty() && !privateKeyFile.isEmpty()) {
+                            gateway.setDefaultCredentials(false);
+                            gateway.setPemCertificateFile(certificateFile);
+                            gateway.setPemPrivateKeyFile(privateKeyFile);
+                        } else {
+                            gateway.setDefaultCredentials(true);
+                            gateway.setJksKeystoreFile(SwidTagConstants.DEFAULT_KEYSTORE_FILE);
+                        }
+                        if (rimEventLog.isEmpty()) {
+                            System.out.println("Error: a support RIM is required!");
+                            System.exit(1);
+                        } else {
+                            gateway.setRimEventLog(rimEventLog);
+                        }
+                        gateway.generateSwidTag(commander.getOutFile());
+                        break;
                 }
             }
-        } else {
-                // development stage in which no valid arguments were given
-            // therefore generate a mock tag file
-            (new SwidTagGateway()).generateSwidTag();
         }
     }
 }

@@ -123,7 +123,7 @@ const char* const CommandTpm2::kDefaultActivatedIdentityFilename
         = "activatedIdentity.secret";
 const char* const CommandTpm2::kTpm2DefaultQuoteFilename = "/tmp/quote.bin";
 const char* const CommandTpm2::kTpm2DefaultSigFilename = "/tmp/sig.bin";
-const char* const CommandTpm2::kTpm2DefaultSigAlgorithm = "sha256";
+const char* const CommandTpm2::kTpm2Sha256SigAlgorithm = "sha256";
 
 /**
  * Constructor to create an interface to TPM 2.0 devices.
@@ -522,8 +522,8 @@ string CommandTpm2::createNvWriteCommandArgs(const string& nvIndex,
 /**
  * Method to get a quote (signed pcr selection) from the TPM 2.0 device.
  *
- * @param akLocation location of an activated AK pair
- * @param pcrSelection selection of pcrs to sign
+ * @param nonce blob provided by the ACA when the Identity Claim Request
+ * @param pcr_election selection of pcrs to sign
  */
 string CommandTpm2::getQuote(const string& pcr_selection,
                     const string& nonce) {
@@ -540,7 +540,7 @@ string CommandTpm2::getQuote(const string& pcr_selection,
     string hexNonce(ss.str());
 
     argsStream << " -k " << kDefaultAkHandle
-              << " -g " << kTpm2DefaultSigAlgorithm
+              << " -g " << kTpm2Sha256SigAlgorithm
               << " -l " << pcr_selection
               << " -q " << hexNonce  // this needs to be a hex string
               << endl;
@@ -558,18 +558,17 @@ string CommandTpm2::getQuote(const string& pcr_selection,
  * Method to get the full list of pcrs from the TPM.
  *
  */
-string CommandTpm2::getPcrsList() {
+string CommandTpm2::getPcrList() {
     string pcrslist;
     stringstream argsStream;
 
-    argsStream << " -g " << kTpm2DefaultSigAlgorithm
-              << endl;
+    argsStream << endl;
 
     LOGGER.info("Running tpm2_pcrlist with arguments: " + argsStream.str());
     pcrslist = runTpm2CommandWithRetry(kTpm2ToolsPcrListCommand,
                             argsStream.str(),
                             __LINE__);
-    LOGGER.info("TPM PCRS List successful");
+    LOGGER.info("TPM PCR List successful");
 
     return pcrslist;
 }

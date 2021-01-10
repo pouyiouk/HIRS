@@ -1,5 +1,6 @@
 package hirs.data.persist;
 
+import hirs.data.persist.enums.HealthStatus;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import hirs.DeviceGroupSerializer;
@@ -93,6 +94,9 @@ public class Device extends AbstractEntity {
 
     @Column(name = "state_override_reason")
     private String overrideReason;
+
+    @Column(name = "summary_id")
+    private String summaryId;
 
     /**
      * Default constructor required by Hibernate.
@@ -355,6 +359,22 @@ public class Device extends AbstractEntity {
             throw new NullPointerException(" supply chain validation status");
         }
         this.supplyChainValidationStatus = supplyChainValidationStatus;
+    }
+
+    /**
+     * Getter for the last summary id.
+     * @return UUID for the summary
+     */
+    public String getSummaryId() {
+        return summaryId;
+    }
+
+    /**
+     * Setter for the last summary id.
+     * @param summaryId UUID
+     */
+    public void setSummaryId(final String summaryId) {
+        this.summaryId = summaryId;
     }
 
     /**

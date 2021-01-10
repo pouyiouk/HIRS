@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 #include <Process.h>
+#include <Properties.h>
+#include <regex>
 
 #include "log4cplus/configurator.h"
 
@@ -31,6 +33,7 @@ using hirs::tpm2::AsymmetricKeyType;
 using hirs::tpm2::CommandTpm2;
 using hirs::tpm2_tools_utils::Tpm2ToolsVersion;
 using hirs::utils::Process;
+using hirs::properties::Properties;
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -41,6 +44,7 @@ int provision() {
     Logger logger = Logger::getDefaultLogger();
 
     CommandTpm2 tpm2;
+    Properties props("/etc/hirs/tcg_boot.properties");
     tpm2.setAuthData();
 
     // get endorsement credential and endorsement key
@@ -59,11 +63,57 @@ int provision() {
     cout << "----> Collecting platform credential from TPM" << endl;
     string platformCredential = tpm2.getPlatformCredentialDefault();
     std::vector<string> platformCredentials;
-    platformCredentials.push_back(platformCredential);
+
+    // if platformCredential is empty, not in TPM
+    // pull from properties file
+    if (platformCredential.empty()) {
+        const std::string& cert_dir = props.get("tcg.cert.dir", "");
+        try {
+            platformCredentials =
+                    hirs::file_utils::search_directory(cert_dir);
+        } catch (HirsRuntimeException& hirsRuntimeException) {
+            logger.error(hirsRuntimeException.what());
+        }
+    } else {
+        platformCredentials.push_back(platformCredential);
+    }
 
     // collect device info
     cout << "----> Collecting device information" << endl;
     hirs::pb::DeviceInfo dv = DeviceInfoCollector::collectDeviceInfo();
+    dv.set_pcrslist(tpm2.getPcrList());
+    // collect TCG Boot files
+    std::vector<string> rim_files;
+    std::vector<string> swidtag_files;
+    const std::string& rim_dir = props.get("tcg.rim.dir", "");
+    const std::string& swid_dir = props.get("tcg.swidtag.dir", "");
+    const std::string& live_log_file = props.get("tcg.event.file", "");
+
+    try {
+        rim_files = hirs::file_utils::search_directory(rim_dir);
+        for (const auto& rims : rim_files) {
+            if (rims != "") {
+                dv.add_logfile(rims);
+            }
+        }
+    } catch (HirsRuntimeException& hirsRuntimeException) {
+        logger.error(hirsRuntimeException.what());
+    }
+    try {
+        swidtag_files = hirs::file_utils::search_directory(swid_dir);
+        for (const auto& swidtag : swidtag_files) {
+            if (swidtag != "") {
+                dv.add_swidfile(swidtag);
+            }
+        }
+    } catch (HirsRuntimeException& hirsRuntimeException) {
+        logger.error(hirsRuntimeException.what());
+    }
+    try {
+        dv.set_livelog(hirs::file_utils::fileToString(live_log_file));
+    } catch (HirsRuntimeException& hirsRuntimeException) {
+        logger.error(hirsRuntimeException.what());
+    }
 
     // send identity claim
     cout << "----> Sending identity claim to Attestation CA" << endl;
@@ -80,7 +130,7 @@ int provision() {
     RestfulClientProvisioner provisioner;
     string nonceBlob = provisioner.sendIdentityClaim(identityClaim);
     if (nonceBlob == "") {
-        cout << "----> Provisioning failed.";
+        cout << "----> Provisioning failed." << endl;
         cout << "Please refer to the Attestation CA for details." << endl;
         return 0;
     }
@@ -105,10 +155,15 @@ int provision() {
                 "0,1,2,3,4,5,6,7,8,9,10,11,12,13,"
                 "14,15,16,17,18,19,20,21,22,23",
                 decryptedNonce));
-    certificateRequest.set_pcrslist(tpm2.getPcrsList());
+
     const string& akCertificateByteString
             = provisioner.sendAttestationCertificateRequest(certificateRequest);
 
+    if (akCertificateByteString == "") {
+        cout << "----> Provisioning failed.";
+        cout << "Please refer to the Attestation CA for details." << endl;
+        return 0;
+    }
     cout << "----> Storing attestation key certificate" << endl;
     tpm2.storeAKCertificate(akCertificateByteString);
     return 1;

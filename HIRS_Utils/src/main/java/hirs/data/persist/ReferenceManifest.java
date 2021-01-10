@@ -1,164 +1,199 @@
 package hirs.data.persist;
 
-import java.io.StringReader;
+import java.util.Arrays;
+import java.util.UUID;
 import javax.persistence.Access;
 import javax.persistence.AccessType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.JAXBException;
-import javax.xml.bind.Unmarshaller;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.hibernate.annotations.Type;
+
+import javax.persistence.Table;
+import javax.xml.XMLConstants;
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlRootElement;
 
 /**
- *
+ * This class represents the Reference Integrity Manifest object that will be
+ * loaded into the DB and displayed in the ACA.
  */
 @Entity
+@Table(name = "ReferenceManifest")
+@XmlRootElement(name = "ReferenceManifest")
+@XmlAccessorType(XmlAccessType.FIELD)
 @Access(AccessType.FIELD)
-public class ReferenceManifest extends ArchivableEntity  {
+public abstract class ReferenceManifest extends ArchivableEntity {
+    /**
+     * String for display of a Base RIM.
+     */
+    public static final String BASE_RIM = "Base";
+    /**
+     * String for display of a Support RIM.
+     */
+    public static final String SUPPORT_RIM = "Support";
+    /**
+     * String for display of a Support RIM.
+     */
+    public static final String MEASUREMENT_RIM = "Measurement";
 
-    private static final Logger LOGGER = LogManager.getLogger();
+    /**
+     * String for the xml schema ios standard.
+     */
+    public static final String SCHEMA_STATEMENT = "ISO/IEC 19770-2:2015 Schema (XSD 1.0) "
+            + "- September 2015, see http://standards.iso.org/iso/19770/-2/2015/schema.xsd";
+    /**
+     * String for the xml schema URL file name.
+     */
+    public static final String SCHEMA_URL = "swid_schema.xsd";
+    /**
+     * String for the language type for the xml schema.
+     */
+    public static final String SCHEMA_LANGUAGE = XMLConstants.W3C_XML_SCHEMA_NS_URI;
+    /**
+     * String for the package location of the xml generated java files.
+     */
+    public static final String SCHEMA_PACKAGE = "hirs.utils.xjc";
 
-    @Column
-    private String manufacturer = null;
-    @Column
-    private String model = null;
-    @Column
-    private String firmwareVersion = null;
+    private static final Logger LOGGER = LogManager.getLogger(ReferenceManifest.class);
+
+    /**
+     * Holds the name of the 'rimHash' field.
+     */
+    public static final String RIM_HASH_FIELD = "rimHash";
+    @Column(nullable = false)
+    @JsonIgnore
+    private final int rimHash;
+    @Column(columnDefinition = "blob", nullable = false)
+    @JsonIgnore
+    private byte[] rimBytes;
+    @Column(nullable = false)
+    private String rimType = "Base";
     @Column
     private String tagId = null;
     @Column
-    private String rimType = null;
+    private String platformManufacturer = null;
+    @Column
+    private String platformManufacturerId = null;
+    @Column
+    private String swidTagVersion = null;
+    @Column
+    private String platformModel = null;
+    @Column(nullable = false)
+    private String fileName = null;
+    @Type(type = "uuid-char")
+    @Column
+    private UUID associatedRim;
 
     /**
-     * Holds the different RIM types.
+     * Default constructor necessary for Hibernate.
      */
-    public enum RimType {
-        /**
-        * Primary Reference Integrity Manifest.
-        */
-        PRIMARY_RIM("Primary"),
-        /**
-        * Supplemental Reference Integrity Manifest.
-        */
-        SUPPLEMENTAL_RIM("Supplemental"),
-        /**
-        * Patch Reference Integrity Manifest.
-        */
-        PATCH_RIM("Patch");
-
-        private String type;
-
-        /**
-         * Default constructor.
-         * @param type a string for the type.
-         */
-        RimType(final String type) {
-            this.type = type;
-        }
-
-        /**
-         * Assessor for RIM Type.
-         * @return string for type
-         */
-        public String getType() {
-            return type;
-        }
+    protected ReferenceManifest() {
+        super();
+        this.rimBytes = null;
+        this.rimHash = 0;
+        this.rimType = null;
+        this.platformManufacturer = null;
+        this.platformManufacturerId = null;
+        this.platformModel = null;
+        this.fileName = BASE_RIM;
+        this.tagId = null;
+        this.associatedRim = null;
     }
 
     /**
-     * Default constructor of given name.
+     * Default constructor for ingesting the bytes of the file content.
+     * @param rimBytes - file contents.
      */
-    public ReferenceManifest() {
+    public ReferenceManifest(final byte[] rimBytes) {
+        Preconditions.checkArgument(rimBytes != null,
+                "Cannot construct a RIM from a null byte array");
+
+        Preconditions.checkArgument(rimBytes.length > 0,
+                "Cannot construct a RIM from an empty byte array");
+
+        this.rimBytes = rimBytes.clone();
+        this.rimHash = Arrays.hashCode(this.rimBytes);
     }
 
     /**
-     * Returns a new <code>Device</code> instance from the XML string. This
-     * unmarshals the XML string and generates a <code>ReferenceManifest</code>
-     * object.
-     * This is a utility method for creating <code>ReferenceManifest</code>
-     * objects.
+     * Getter for the file name of the data that was uploaded.
+     * @return the file name
+     */
+    public String getFileName() {
+        return fileName;
+    }
+
+    /**
+     * Setter for the file name of the data that was uploaded.
+     * @param fileName file name to associate
+     */
+    public void setFileName(final String fileName) {
+        this.fileName = fileName;
+    }
+
+    /**
+     * Getter for the platformManufacturer info.
      *
-     * @param xml
-     *            XML representation of device
-     * @return device
-     * @throws JAXBException
-     *             if unable to unmarshal the string
+     * @return string for the platformManufacturer
      */
-    public static ReferenceManifest getInstance(final String xml) throws JAXBException {
-        final JAXBContext context = JAXBContext.newInstance(Device.class);
-        final Unmarshaller unmarshaller = context.createUnmarshaller();
-        final StringReader reader = new StringReader(xml);
-        return (ReferenceManifest) unmarshaller.unmarshal(reader);
+    public String getPlatformManufacturer() {
+        return platformManufacturer;
     }
 
     /**
-     * Getter for the manufacturuer info.
-     * @return string for the manufacturuer
+     * Setter for the platformManufacturer info.
+     *
+     * @param platformManufacturer passed in info.
      */
-    public String getManufacturer() {
-        return manufacturer;
+    public void setPlatformManufacturer(final String platformManufacturer) {
+        this.platformManufacturer = platformManufacturer;
     }
 
     /**
-     * Setter for the manufacturuer info.
-     * @param manufacturer passed in info.
+     * Getter for the platform manufacturer ID.
+     *
+     * @return string for the platform manufacturer id.
      */
-    public void setManufacturer(final String manufacturer) {
-        this.manufacturer = manufacturer;
+    public String getPlatformManufacturerId() {
+        return platformManufacturerId;
     }
 
     /**
-     * Getter for the model info.
-     * @return string for the model
+     * Setter for the platform manufacturer ID.
+     *
+     * @param platformManufacturerId passed in info
      */
-    public String getModel() {
-        return model;
+    public void setPlatformManufacturerId(final String platformManufacturerId) {
+        this.platformManufacturerId = platformManufacturerId;
     }
 
     /**
-     * Setter for the Model info.
-     * @param model passed in model
+     * Getter for the platformModel info.
+     *
+     * @return string for the platformModel
      */
-    public void setModel(final String model) {
-        this.model = model;
+    public String getPlatformModel() {
+        return platformModel;
     }
 
     /**
-     * Getter for the firmware version info.
-     * @return string for the firmware version
+     * Setter for the platformModel info.
+     *
+     * @param platformModel passed in platformModel
      */
-    public String getFirmwareVersion() {
-        return firmwareVersion;
-    }
-
-    /**
-     * Setter for the firmware version info.
-     * @param firmwareVersion passed in firmware version
-     */
-    public void setFirmwareVersion(final String firmwareVersion) {
-        this.firmwareVersion = firmwareVersion;
-    }
-
-    /**
-     * Getter for the RIM Tag ID.
-     * @return string for the RIM tag id
-     */
-    public String getTagId() {
-        return tagId;
-    }
-
-    /**
-     * Setter for the RIM Tag ID.
-     * @param tagId passed in RIM Tag ID
-     */
-    public void setTagId(final String tagId) {
-        this.tagId = tagId;
+    public void setPlatformModel(final String platformModel) {
+        this.platformModel = platformModel;
     }
 
     /**
      * Getter for the RIM Type (Primary, Supplemental, Patch).
+     *
      * @return string for the RIM Type
      */
     public String getRimType() {
@@ -167,9 +202,118 @@ public class ReferenceManifest extends ArchivableEntity  {
 
     /**
      * Setter for the RIM Type.
-     * @param type passed in RIM Type
+     *
+     * @param rimType passed in RIM Type
      */
-    public void setRimType(final String type) {
-        this.rimType = type;
+    public void setRimType(final String rimType) {
+        this.rimType = rimType;
+    }
+
+    /**
+     * Getter for the SWID tag version.
+     *
+     * @return string of the tag version number
+     */
+    public String getSwidTagVersion() {
+        return swidTagVersion;
+    }
+
+    /**
+     * Setter for the SWID tag version.
+     *
+     * @param swidTagVersion string of the version
+     */
+    public void setSwidTagVersion(final String swidTagVersion) {
+        this.swidTagVersion = swidTagVersion;
+    }
+
+    /**
+     * Getter for the RIM Tag ID.
+     *
+     * @return string for the RIM tag id
+     */
+    public String getTagId() {
+        return tagId;
+    }
+
+    /**
+     * Setter for the RIM Tag ID.
+     *
+     * @param tagId passed in RIM Tag ID
+     */
+    public void setTagId(final String tagId) {
+        this.tagId = tagId;
+    }
+
+    /**
+     * Getter for the associated RIM DB ID.
+     * @return UUID for the rim
+     */
+    public UUID getAssociatedRim() {
+        return associatedRim;
+    }
+
+    /**
+     * Setter for the associated RIM DB ID.
+     * @param associatedRim UUID for the rim
+     */
+    public void setAssociatedRim(final UUID associatedRim) {
+        this.associatedRim = associatedRim;
+    }
+
+    /**
+     * Getter for the Reference Integrity Manifest as a byte array.
+     *
+     * @return array of bytes
+     */
+    @JsonIgnore
+    public byte[] getRimBytes() {
+        if (this.rimBytes != null) {
+            return this.rimBytes.clone();
+        }
+        return null;
+    }
+
+    /**
+     * Getter for the Reference Integrity Manifest hash value.
+     *
+     * @return int representation of the hash value
+     */
+    public int getRimHash() {
+        return rimHash;
+    }
+
+    @Override
+    public int hashCode() {
+        return getRimHash();
+    }
+
+    @Override
+    public boolean equals(final Object object) {
+        if (this == object) {
+            return true;
+        }
+        if (object == null || getClass() != object.getClass()) {
+            return false;
+        }
+        if (!super.equals(object)) {
+            return false;
+        }
+        ReferenceManifest that = (ReferenceManifest) object;
+        return rimHash == that.rimHash
+                && Arrays.equals(rimBytes, that.rimBytes)
+                && rimType.equals(that.rimType)
+                && tagId.equals(that.tagId)
+                && platformManufacturer.equals(that.platformManufacturer)
+                && platformManufacturerId.equals(that.platformManufacturerId)
+                && platformModel.equals(that.platformModel)
+                && fileName.equals(that.fileName);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Filename->%s%nPlatform Manufacturer->%s%n"
+                + "Platform Model->%s%nRIM Type->%s", this.getFileName(),
+                this.platformManufacturer, this.platformModel, this.getRimType());
     }
 }
